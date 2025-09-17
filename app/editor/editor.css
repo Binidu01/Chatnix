@@ -1,0 +1,331 @@
+@import url("https://fonts.googleapis.com/css2?family=Ubuntu+Mono:wght@400;700&display=swap");
+
+.editor-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #1a1a1a;
+  font-family: "Ubuntu Mono", monospace;
+}
+
+.editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 20px;
+  background: #111;
+  color: #fff;
+}
+
+.status-info {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.status-connected {
+  color: #28a745;
+}
+
+.status-disconnected {
+  color: #f44336;
+}
+
+.users-avatars {
+  display: flex;
+  gap: 8px;
+}
+
+.user-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+}
+
+.user-menu {
+  position: relative;
+}
+
+.user-menu-trigger {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  gap: 5px;
+}
+
+.user-menu-avatar {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+}
+
+.user-menu-dropdown {
+  position: absolute;
+  top: 45px;
+  right: 0;
+  background: #222;
+  border: 1px solid #333;
+  border-radius: 5px;
+  padding: 10px;
+  z-index: 100;
+  min-width: 120px;
+}
+
+.menu-button {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-weight: bold;
+  padding: 8px 0;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+}
+
+.logout-button {
+  color: #f44336;
+}
+
+.leave-button {
+  color: #ff9800;
+}
+
+.menu-button:hover {
+  opacity: 0.8;
+}
+
+.main-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.editor-section {
+  flex: 1;
+  position: relative;
+}
+
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #fff;
+  z-index: 10;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.spinner {
+  border: 3px solid #333;
+  border-top: 3px solid #28a745;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.vscode-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+.chat-section {
+  width: 350px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #333;
+  background: #111;
+  color: #fff;
+  position: relative;
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  background: #222;
+  font-weight: bold;
+  border-bottom: 1px solid #333;
+}
+
+.close-chat-button {
+  background: transparent;
+  border: none;
+  color: #f44336;
+  font-size: 1.2rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.close-chat-button:hover {
+  opacity: 0.8;
+}
+
+.messages-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.message-item {
+  margin-bottom: 8px;
+}
+
+.system-message {
+  text-align: center;
+  color: #888;
+  font-style: italic;
+}
+
+.user-message {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.message-right {
+  justify-content: flex-end;
+}
+
+.message-left {
+  justify-content: flex-start;
+}
+
+.message-avatar {
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+}
+
+.message-content {
+  background: #333;
+  padding: 5px;
+  border-radius: 5px;
+}
+
+.message-timestamp {
+  color: #888;
+  font-size: 0.8em;
+}
+
+.typing-indicator {
+  padding: 0 10px 5px;
+  color: #888;
+  font-style: italic;
+}
+
+.chat-form {
+  display: flex;
+  padding: 10px;
+  border-top: 1px solid #333;
+}
+
+.chat-input {
+  flex: 1;
+  padding: 6px;
+  border-radius: 5px;
+  border: 1px solid #333;
+  background: #222;
+  color: #fff;
+  font-family: inherit;
+}
+
+.chat-input:focus {
+  outline: none;
+  border-color: #28a745;
+}
+
+.send-button {
+  margin-left: 5px;
+  padding: 6px 12px;
+  border-radius: 5px;
+  border: none;
+  color: #fff;
+  font-family: inherit;
+}
+
+.send-button-enabled {
+  background: #28a745;
+  cursor: pointer;
+}
+
+.send-button-disabled {
+  background: #666;
+  cursor: not-allowed;
+}
+
+.send-button-enabled:hover {
+  background: #1e7e34;
+}
+
+/* Floating reopen chat button */
+.reopen-chat-button {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  background: #28a745;
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  cursor: pointer;
+  font-size: 1.5rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 50;
+}
+
+.reopen-chat-button:hover {
+  background: #1e7e34;
+}
+
+/* Reconnecting spinner */
+.reconnecting-status {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 10px;
+  color: #f39c12;
+  font-weight: bold;
+  font-size: 0.9rem;
+}
+
+.spinner-dot {
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  background-color: #f39c12;
+  border-radius: 50%;
+  display: inline-block;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%,
+  50%,
+  100% {
+    opacity: 1;
+  }
+  25%,
+  75% {
+    opacity: 0;
+  }
+}

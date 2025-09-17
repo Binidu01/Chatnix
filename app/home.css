@@ -1,0 +1,200 @@
+@import url("https://fonts.googleapis.com/css2?family=Ubuntu+Mono:wght@400;700&display=swap");
+
+* {
+  box-sizing: border-box;
+}
+
+body,
+html {
+  margin: 0;
+  padding: 0;
+  background-color: #000;
+  height: 100%;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+.logoSymbol {
+  color: #2da44e;
+  font-size: 100px;
+  font-weight: bold;
+  font-family: monospace;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  width: 100%;
+  background-color: #000;
+  padding: 2rem;
+  box-sizing: border-box;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 600px;
+  padding: 2rem;
+  border-radius: 8px;
+  color: #fff;
+}
+
+.logoSection {
+  margin-bottom: 1.5rem;
+}
+
+.logo {
+  margin-bottom: 0.5rem;
+  background-color: black;
+}
+
+.welcomeText {
+  font-family: "Ubuntu Mono", monospace;
+  font-size: 42px;
+  font-weight: 700;
+  color: white;
+  background-color: black;
+  text-align: center;
+}
+
+.description {
+  font-size: 1.2rem;
+  color: #a0a0a0;
+  margin-top: 2rem;
+  margin-bottom: 0.5rem;
+  font-family: roboto, sans-serif;
+}
+
+.subDescription {
+  font-size: 1rem;
+  color: #888;
+  line-height: 1.5;
+  max-width: 450px;
+  margin-bottom: 3rem;
+  font-family: roboto, sans-serif;
+}
+
+.green {
+  color: #22c55e;
+  font-weight: 800;
+}
+
+.featureButtons {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 3rem;
+}
+
+@media (max-width: 500px) {
+  .featureButtons {
+    flex-direction: column;
+  }
+}
+
+.featureBtn {
+  background-color: #040e35;
+  color: #a0a0a0;
+  padding: 0.75rem 1.5rem;
+  border-radius: 50px;
+  font-size: 0.9rem;
+  transition: background-color 0.3s ease;
+  border: none;
+  font-family: "Ubuntu Mono", monospace;
+}
+
+.featureBtn:hover {
+  background-color: #2a2a2a;
+}
+
+.signInBtn {
+  background-color: #22c55e;
+  color: #fff;
+  padding: 1.2rem 3rem;
+  border-radius: 15px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  font-family: "Ubuntu Mono", monospace;
+  margin-bottom: 4rem;
+  border: none;
+  transition: background-color 0.3s ease;
+  cursor: pointer;
+}
+
+.signInBtn:hover {
+  background-color: #16a34a;
+}
+
+.loadingSection {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: #6ee7b7;
+  margin-bottom: 1rem;
+  font-family: "Ubuntu Mono", monospace;
+}
+
+.loadingIcon {
+  font-weight: bold;
+  font-family: "Ubuntu Mono", monospace;
+  color: white;
+}
+
+.progressBar {
+  width: 150px;
+  height: 15px;
+  background-color: #1a1a1a;
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progressBar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  background-color: #6ee7b7;
+  border-radius: 2px;
+  animation: progressAnimation 2s infinite ease-in-out;
+}
+
+@keyframes progressAnimation {
+  0% {
+    left: -50%;
+    width: 50%;
+  }
+  50% {
+    left: 100%;
+    width: 50%;
+  }
+  100% {
+    left: -50%;
+    width: 50%;
+  }
+}
+
+.footerText {
+  font-size: 0.9rem;
+  color: #888;
+  margin-top: 3rem;
+  font-family: roboto, sans-serif;
+}
+
+.createAccountLink {
+  color: #6ee7b7;
+  font-weight: 500;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.createAccountLink:hover {
+  color: #4ade80;
+}
