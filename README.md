@@ -1,10 +1,10 @@
 <div align="center">
-  
+
 # Chatnix
 
 Real-time collaborative code editor with live chat and browser-based VS Code.
 
-![TypeScript](https://img.shields.io/badge/TypeScript-3178c6?style=for-the-badge&logo=typescript&logoColor=white) ![CSS](https://img.shields.io/badge/CSS-1572B6?style=for-the-badge&logo=css&logoColor=white) ![JavaScript](https://img.shields.io/badge/JavaScript-f1e05a?style=for-the-badge&logo=javascript&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178c6?style=for-the-badge&logo=typescript&logoColor=white) ![CSS](https://img.shields.io/badge/CSS-1572B6?style=for-the-badge&logo=css&logoColor=white) ![JavaScript](https://img.shields.io/badge/JavaScript-f1e05a?style=for-the-badge&logo=javascript&logoColor=white) ![Express](https://img.shields.io/badge/Express-000000?style=for-the-badge&logo=express&logoColor=white)
 
 [![Stars](https://img.shields.io/github/stars/Binidu01/Chatnix?style=for-the-badge&logo=github)](https://github.com/Binidu01/Chatnix/stargazers)
 [![Forks](https://img.shields.io/github/forks/Binidu01/Chatnix?style=for-the-badge&logo=github)](https://github.com/Binidu01/Chatnix/network/members)
@@ -39,10 +39,12 @@ Real-time collaborative code editor with live chat and browser-based VS Code.
 ## 🛠️ Installation
 
 ### Prerequisites
+
 - Node.js (v14 or higher)
 - npm or yarn
 
 ### Quick Start
+
 ```bash
 # Clone the repository
 git clone https://github.com/Binidu01/Chatnix.git
@@ -53,17 +55,31 @@ cd Chatnix
 # Install dependencies
 npm install
 
-# Start development server
+# Start the backend server (in one terminal)
+node server.js
+
+# Start the frontend development server (in another terminal)
 npm run dev
 ```
+
+> ⚠️ **Note:** Chatnix requires the backend server to be running for live chat, collaborative editing, and the browser-based VS Code features to work. Make sure `node server.js` is running in its own terminal **before** or **alongside** `npm run dev`.
 
 Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
 
 ## 💻 Usage
 
+Chatnix requires **two processes running at the same time**, each in its own terminal:
+
+**Terminal 1 — Backend server**
+
 ```bash
-# Basic usage example
-chatnix --help
+node server.js
+```
+
+**Terminal 2 — Frontend dev server**
+
+```bash
+npm run dev
 ```
 
 For more detailed usage instructions, please refer to our [documentation](https://github.com/Binidu01/Chatnix).
@@ -73,6 +89,7 @@ For more detailed usage instructions, please refer to our [documentation](https:
 - **TypeScript** - 49.3%
 - **CSS** - 25.7%
 - **JavaScript** - 24.9%
+- **Express** - Backend server (`server.js`)
 
 ## 🤝 Contributing
 
@@ -94,8 +111,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 Project Link: [https://github.com/Binidu01/Chatnix](https://github.com/Binidu01/Chatnix)
 
-
-
 ## 🙏 Acknowledgments
 
 - Thanks to all contributors who have helped this project grow
@@ -105,7 +120,7 @@ Project Link: [https://github.com/Binidu01/Chatnix](https://github.com/Binidu01/
 ---
 
 <div align="center">
-  
+
 **[⬆ Back to Top](#chatnix)**
 
 Made with ❤️ by [Binidu01](https://github.com/Binidu01)
