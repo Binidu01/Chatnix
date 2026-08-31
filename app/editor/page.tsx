@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { Suspense, useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { io, Socket } from "socket.io-client";
 import { getAuth, onAuthStateChanged, signOut, User } from "firebase/auth";
 import { initializeApp, getApps, getApp } from "firebase/app";
+//@ts-ignore
 import "./editor.css";
 
 // --- Firebase Config ---
@@ -20,15 +21,32 @@ const firebaseConfig = {
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 
-export default function EditorPage() {
+// Types
+interface Message {
+  id?: string;
+  username: string;
+  message: string;
+  timestamp: string;
+  photoURL?: string;
+  type?: "chat" | "system" | "user-action" | "file-change";
+}
+
+interface UserData {
+  username: string;
+  photoURL?: string;
+  joinedAt?: string;
+}
+
+// Component that uses useSearchParams
+function EditorContent() {
   const searchParams = useSearchParams();
   const roomId = searchParams.get("room") || "default-room";
 
   const [user, setUser] = useState<User | null>(null);
   const [socketServerUrl, setSocketServerUrl] = useState<string | null>(null);
-  const [messages, setMessages] = useState<any[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [chatInput, setChatInput] = useState("");
-  const [users, setUsers] = useState<any[]>([]);
+  const [users, setUsers] = useState<UserData[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [connectionStatus, setConnectionStatus] =
@@ -37,7 +55,7 @@ export default function EditorPage() {
   const [vsCodeUrl, setVsCodeUrl] = useState<string | null>(null);
   const [iframeKey, setIframeKey] = useState(0);
   const [iframeLoading, setIframeLoading] = useState(true);
-  const [isChatOpen, setIsChatOpen] = useState(true); // toggles chat
+  const [isChatOpen, setIsChatOpen] = useState(true);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const typingTimeoutRef = useRef<number | null>(null);
@@ -48,9 +66,7 @@ export default function EditorPage() {
   // --- Client-only socket URL ---
   useEffect(() => {
     setSocketServerUrl(
-      `${
-        window.location.protocol === "https:" ? "wss" : "ws"
-      }://8xqqzs-3001.csb.app`
+      `${window.location.protocol === "https:" ? "wss" : "ws"}://localhost:3001`
     );
   }, []);
 
@@ -83,7 +99,7 @@ export default function EditorPage() {
 
     socketRef.current = socket;
 
-    const safeEmit = (event: string, payload?: any) => {
+    const safeEmit = (event: string, payload?: unknown) => {
       try {
         socket.emit(event, payload);
       } catch (err) {
@@ -115,16 +131,14 @@ export default function EditorPage() {
     });
 
     // Chat & room events
-    socket.on("chat-message", (msg: any) =>
+    socket.on("chat-message", (msg: Message) =>
       setMessages((prev) => [...prev, msg])
     );
-    socket.on(
-      "chat-history",
-      (history: any[]) => Array.isArray(history) && setMessages(history)
+    socket.on("chat-history", (history: Message[]) =>
+      Array.isArray(history) && setMessages(history)
     );
-    socket.on(
-      "users-update",
-      (roomUsers: any[]) => Array.isArray(roomUsers) && setUsers(roomUsers)
+    socket.on("users-update", (roomUsers: UserData[]) =>
+      Array.isArray(roomUsers) && setUsers(roomUsers)
     );
     socket.on("user-typing", (username: string) =>
       setTypingUsers((prev) => Array.from(new Set([...prev, username])))
@@ -402,5 +416,27 @@ export default function EditorPage() {
         )}
       </div>
     </div>
+  );
+}
+
+// Main page component with Suspense
+export default function EditorPage() {
+  return (
+    <Suspense fallback={
+      <div className="editor-container">
+        <div className="editor-header">
+          <h1 className="editor-logo">CHAT<span className="editor-green">N</span>IX</h1>
+        </div>
+        <div className="main-content">
+          <div className="editor-section">
+            <div className="loading-overlay">
+              <div className="spinner" /> Loading editor...
+            </div>
+          </div>
+        </div>
+      </div>
+    }>
+      <EditorContent />
+    </Suspense>
   );
 }

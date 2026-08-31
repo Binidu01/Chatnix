@@ -12,6 +12,7 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
 } from "firebase/auth";
+// @ts-ignore
 import "./login.css"; // Import the CSS file first
 
 // --- Firebase Configuration ---

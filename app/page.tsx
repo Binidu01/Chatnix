@@ -1,7 +1,6 @@
 "use client";
-
-import { useState } from "react";
 import { useRouter } from "next/navigation";
+// @ts-ignore
 import "./home.css";
 
 export default function Home() {

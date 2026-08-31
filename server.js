@@ -1,4 +1,4 @@
-// server.js
+// server.js - ULTRA FAST with PERMISSION FIX & AUTH DISABLED
 import express from "express";
 import http from "http";
 import { Server } from "socket.io";
@@ -9,6 +9,8 @@ import fs from "fs/promises";
 import path from "path";
 import chokidar from "chokidar";
 import net from "net";
+import os from "os";
+import crypto from "crypto";
 
 const exec = promisify(cpExec);
 
@@ -17,84 +19,45 @@ const server = http.createServer(app);
 app.use(express.json());
 
 // ----------------------
-// Config
+// Configuration
 // ----------------------
-const BASE_URL = process.env.BASE_URL || "https://8xqqzs-3000.csb.app/";
+const BASE_URL = process.env.BASE_URL || "http://localhost:3000";
 const PORT = process.env.PORT || 3001;
-const WORKSPACE_BASE_PATH = "/tmp/code-server-workspaces";
-const FREE_PORT_RANGE = { start: 8080, end: 8100 };
-const MONITOR_INTERVAL = 10000; // 10 seconds
-const ROOM_CLEANUP_DELAY = 60000; // 1 minute
-const MAX_CONTAINER_RESTARTS = 5; // fail after this many restarts
-const RESTART_BACKOFF_BASE_MS = 2000; // exponential backoff base
 
-// Allowed origins for CORS
-const ALLOWED_ORIGINS = [
+const WORKSPACE_BASE_PATH = os.platform() === 'win32' 
+    ? path.join(process.env.USERPROFILE || 'C:\\', 'code-server-workspaces')
+    : '/tmp/code-server-workspaces';
+
+const FREE_PORT_RANGE = { start: 8080, end: 8100 };
+const MONITOR_INTERVAL = 15000;
+const ROOM_CLEANUP_DELAY = 120000;
+const MAX_CONTAINER_RESTARTS = 3;
+const RESTART_BACKOFF_BASE_MS = 2000;
+const MAX_ROOMS_TOTAL = 100;
+
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS?.split(',') || [
   "https://8xqqzs-3000.csb.app",
   "http://localhost:3000",
   "http://localhost:3001",
   "https://8xqqzs-3001.csb.app",
 ];
 
-// File watcher configuration
-const WATCHER_CONFIG = {
-  ignored: ["**/node_modules/**", "**/.git/**", "**/.vscode/**", "**/.*"],
-  persistent: true,
-  ignoreInitial: true,
-};
-
-// Initial project files template
-const INITIAL_FILES = {
-  "README.md": (roomId) =>
-    `# Room ${roomId}\n\nWelcome to your collaborative coding room!\n`,
-  "index.js": (roomId) => `console.log("Hello from room ${roomId}!");\n`,
-  "index.html": (roomId) => `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><title>Room ${roomId}</title></head>
-<body><h1>Welcome to Room ${roomId}</h1><script src="index.js"></script></body>
-</html>`,
-  "package.json": (roomId) =>
-    JSON.stringify(
-      {
-        name: `room-${roomId}`,
-        version: "1.0.0",
-        main: "index.js",
-        scripts: { start: "node index.js" },
-      },
-      null,
-      2
-    ),
-};
-
 // ----------------------
-// State Management
+// State
 // ----------------------
 const state = {
-  rooms: {}, // roomId -> { messages, users, vsCodeUrl, projectPath, createdAt }
-  dockerContainers: {}, // roomId -> containerId
-  fileWatchers: {}, // roomId -> chokidar watcher
-  monitorIntervals: {}, // roomId -> intervalId
-  cleanupTimers: {}, // roomId -> timeoutId
-  allocatedPorts: new Set(), // ports reserved
-  allocatedPortByRoom: {}, // roomId -> port
-  containerRestartAttempts: {}, // roomId -> attempts
+  rooms: new Map(),
+  dockerContainers: new Map(),
+  fileWatchers: new Map(),
+  monitorIntervals: new Map(),
+  cleanupTimers: new Map(),
+  allocatedPorts: new Set(),
+  allocatedPortByRoom: new Map(),
+  containerRestartAttempts: new Map(),
 };
 
 // ----------------------
-// Initialize workspace
-// ----------------------
-async function initializeWorkspace() {
-  try {
-    await fs.mkdir(WORKSPACE_BASE_PATH, { recursive: true });
-    console.log(`✅ Workspace directory initialized: ${WORKSPACE_BASE_PATH}`);
-  } catch (error) {
-    console.error("❌ Error creating workspace directory:", error);
-    process.exit(1);
-  }
-}
-
-// ----------------------
-// Socket.IO - create early with heartbeat settings
+// Socket.IO
 // ----------------------
 const io = new Server(server, {
   pingInterval: 25000,
@@ -107,7 +70,7 @@ const io = new Server(server, {
 });
 
 // ----------------------
-// Utility Functions
+// Utilities
 // ----------------------
 function getCurrentTimestamp() {
   return new Date().toISOString();
@@ -122,47 +85,26 @@ function createSystemMessage(message, type = "system") {
   };
 }
 
-/**
- * Build a public URL from BASE_URL and a port.
- * Strategy:
- *  - Try to replace the last numeric chunk in hostname with port (handles hosts like myhost-3000.example)
- *  - Otherwise set base.port = port
- */
-function buildPublicUrlFromBase(port) {
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function execSafe(cmd) {
   try {
-    const base = new URL(BASE_URL);
-    const hostname = base.hostname;
-    const lastNumberMatch = hostname.match(/(\d+)(?!.*\d)/); // last numeric run
-    let newHostname = hostname;
-    if (lastNumberMatch) {
-      // replace that numeric run with the port
-      newHostname =
-        hostname.slice(0, lastNumberMatch.index) +
-        String(port) +
-        hostname.slice(lastNumberMatch.index + lastNumberMatch[0].length);
-      // Rebuild origin with new hostname
-      const url = `${base.protocol}//${newHostname}${
-        base.pathname === "/" ? "" : base.pathname.replace(/\/$/, "")
-      }`;
-      return url;
-    } else {
-      // fallback: set port on URL
-      base.port = String(port);
-      return base.toString().replace(/\/$/, ""); // trim trailing slash
+    const { stdout, stderr } = await exec(cmd);
+    if (stderr && !stderr.includes('WARNING') && !stderr.includes('deprecated') && !stderr.includes('succeeded')) {
+      console.warn(`⚠️ ${stderr}`);
     }
+    return stdout.trim();
   } catch (err) {
-    console.error("Error building public URL from BASE_URL:", err);
-    return `http://localhost:${port}`;
+    throw err;
   }
 }
 
-/**
- * Reserve and return a free port from the range. Uses state.allocatedPorts to avoid race conditions
- */
-async function getFreePort(
-  start = FREE_PORT_RANGE.start,
-  end = FREE_PORT_RANGE.end
-) {
+// ----------------------
+// Port Management
+// ----------------------
+async function getFreePort(start = FREE_PORT_RANGE.start, end = FREE_PORT_RANGE.end) {
   for (let port = start; port <= end; port++) {
     if (state.allocatedPorts.has(port)) continue;
     const inUse = await new Promise((resolve) => {
@@ -172,73 +114,134 @@ async function getFreePort(
       s.listen(port);
     });
     if (!inUse) {
-      // reserve the port
       state.allocatedPorts.add(port);
       return port;
     }
   }
-  throw new Error(`No free ports available in range ${start}-${end}`);
+  throw new Error(`No free ports available`);
 }
 
 function freePort(port) {
   if (!port) return;
   state.allocatedPorts.delete(port);
-  // also remove from allocatedPortByRoom if present
-  const room = Object.keys(state.allocatedPortByRoom).find(
-    (r) => state.allocatedPortByRoom[r] === port
+  const room = Array.from(state.allocatedPortByRoom.entries()).find(
+    ([, p]) => p === port
   );
-  if (room) delete state.allocatedPortByRoom[room];
-}
-
-async function execSafe(cmd) {
-  try {
-    const { stdout } = await exec(cmd);
-    return stdout.trim();
-  } catch (err) {
-    throw err;
-  }
+  if (room) state.allocatedPortByRoom.delete(room[0]);
 }
 
 // ----------------------
 // Docker Management
 // ----------------------
-async function isContainerRunning(containerId) {
+async function withRetry(fn, retries = 2, delay = 1000) {
+  let lastError;
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      console.warn(`⚠️ Attempt ${i + 1}/${retries} failed: ${error.message}`);
+      if (i < retries - 1) await sleep(delay);
+    }
+  }
+  throw lastError;
+}
+
+async function isContainerRunning(containerName) {
   try {
-    const out = await execSafe(
-      `docker inspect -f '{{.State.Running}}' ${containerId}`
-    );
-    return out === "true";
+    const out = await execSafe(`docker ps --filter "name=${containerName}" --format "{{.Status}}"`);
+    return out.length > 0;
   } catch (err) {
+    console.warn(`⚠️ Could not check container: ${err.message}`);
     return false;
   }
 }
 
-async function stopAndRemoveContainer(containerId) {
-  const commands = [`docker stop ${containerId}`, `docker rm ${containerId}`];
+async function stopAndRemoveContainer(containerName) {
+  const commands = [`docker stop ${containerName}`, `docker rm ${containerName}`];
   for (const command of commands) {
     try {
       await execSafe(command);
-    } catch (err) {
-      // ignore - might already be stopped/removed
-    }
+    } catch {}
   }
 }
 
+// ----------------------
+// ULTRA FAST Container Creation - FIXED VERSION
+// ----------------------
 async function createDockerContainer(roomId, projectPath, port) {
-  const containerName = `code-server-${roomId}-${Date.now()}`;
+  const containerName = `code-server-${roomId}`;
+  
+  // Fix Windows path
+  let dockerPath = projectPath;
+  if (os.platform() === 'win32') {
+    dockerPath = projectPath.replace(/\\/g, '/');
+    if (!dockerPath.match(/^[A-Za-z]:/)) {
+      dockerPath = `C:/${dockerPath}`;
+    }
+  }
 
-  // launch code-server in container, binding container:8080 -> host:port
+  // Check if directory exists
+  try {
+    await fs.access(projectPath);
+  } catch {
+    throw new Error(`Project directory not found: ${projectPath}`);
+  }
+
+  // Remove existing container
+  try {
+    await execSafe(`docker rm -f ${containerName}`);
+  } catch {}
+
+  // Use the OFFICIAL code-server image (not LinuxServer.io) - it works better with auth disabled
+  const imageTag = 'codercom/code-server:latest';
+  
+  // Quick image check
+  try {
+    const imageCheck = await execSafe(`docker images ${imageTag} --format "{{.Repository}}"`);
+    if (!imageCheck) {
+      console.log(`📥 Pulling official code-server image...`);
+      await execSafe(`docker pull ${imageTag}`);
+    }
+  } catch {
+    console.log(`📥 Pulling official code-server image...`);
+    await execSafe(`docker pull ${imageTag}`);
+  }
+
+  // Use the OFFICIAL image with correct port 8080 and auth disabled
   const dockerCommand = `docker run -d -p ${port}:8080 \
--v ${projectPath}:/home/coder/project \
+-v "${dockerPath}:/home/coder/project" \
 -e PASSWORD="" \
 --name ${containerName} \
-codercom/code-server:latest \
+--restart unless-stopped \
+${imageTag} \
 --auth none \
 --bind-addr 0.0.0.0:8080`;
 
-  const stdout = await execSafe(dockerCommand);
-  const containerId = stdout.trim();
-  return { containerId, containerName };
+  console.log(`🐳 Starting container on port ${port}...`);
+  
+  await execSafe(dockerCommand);
+  
+  // Wait 5 seconds for container to start
+  await sleep(5000);
+  
+  // Check if container is running
+  const running = await isContainerRunning(containerName);
+  
+  if (!running) {
+    try {
+      const logs = await execSafe(`docker logs ${containerName} --tail 20`);
+      console.error('📋 Container logs:', logs);
+    } catch (logErr) {
+      console.error('Could not fetch logs');
+    }
+    throw new Error(`Container ${containerName} failed to start`);
+  }
+
+  console.log(`✅ Container ready on port ${port}!`);
+  console.log(`🌐 http://localhost:${port}`);
+  
+  return { containerId: containerName, containerName };
 }
 
 // ----------------------
@@ -251,250 +254,213 @@ async function createProjectFolder(roomId) {
   try {
     await fs.mkdir(projectDir, { recursive: true });
 
-    // Create initial files using template
-    const fileCreationPromises = Object.entries(INITIAL_FILES).map(
-      async ([fileName, contentFn]) => {
-        const content = contentFn(roomId);
-        const filePath = path.join(projectDir, fileName);
-        await fs.writeFile(filePath, content);
-      }
+    const INITIAL_FILES = {
+      "README.md": `# Room ${roomId}\n\nWelcome!\n`,
+      "index.js": `console.log("Hello from room ${roomId}!");\n`,
+      "index.html": `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Room ${roomId}</title></head>
+<body><h1>Welcome to Room ${roomId}</h1></body>
+</html>`,
+      "package.json": JSON.stringify({
+        name: `room-${roomId}`,
+        version: "1.0.0",
+        main: "index.js",
+        scripts: { start: "node index.js" },
+      }, null, 2),
+    };
+
+    await Promise.all(
+      Object.entries(INITIAL_FILES).map(async ([fileName, content]) => {
+        await fs.writeFile(path.join(projectDir, fileName), content);
+      })
     );
 
-    await Promise.all(fileCreationPromises);
-
-    console.log(`📁 Project folder created: ${projectPath}`);
+    console.log(`📁 Project created at: ${projectDir}`);
     return projectPath;
   } catch (error) {
-    console.error("❌ Error creating project folder:", error);
+    console.error("❌ Error creating project:", error);
     throw error;
-  }
-}
-
-// ----------------------
-// File Watching System
-// ----------------------
-function startFileWatcher(roomId, projectPath) {
-  try {
-    const watcher = chokidar.watch(projectPath, WATCHER_CONFIG);
-
-    const events = [
-      { event: "add", action: "created", type: "file" },
-      { event: "change", action: "edited", type: "file" },
-      { event: "unlink", action: "deleted", type: "file" },
-      { event: "addDir", action: "created", type: "folder" },
-      { event: "unlinkDir", action: "deleted", type: "folder" },
-    ];
-
-    events.forEach(({ event, action, type }) => {
-      watcher.on(event, (filePath) => {
-        const relativePath = path.relative(projectPath, filePath);
-        broadcastFileChange(roomId, action, relativePath, type);
-      });
-    });
-
-    watcher.on("error", (error) => {
-      console.error(`🔍 File watcher error for room ${roomId}:`, error);
-    });
-
-    state.fileWatchers[roomId] = watcher;
-    console.log(`🔍 File watcher started for room: ${roomId}`);
-  } catch (error) {
-    console.error("❌ Error starting file watcher:", error);
-  }
-}
-
-function stopFileWatcher(roomId) {
-  const watcher = state.fileWatchers[roomId];
-  if (!watcher) return;
-  try {
-    watcher.close();
-    delete state.fileWatchers[roomId];
-    console.log(`🔍 File watcher closed for room: ${roomId}`);
-  } catch (err) {
-    console.error(`❌ Error closing file watcher for room ${roomId}:`, err);
-  }
-}
-
-function broadcastFileChange(roomId, action, filePath, type = "file") {
-  if (!state.rooms[roomId]) return;
-
-  try {
-    const systemMsg = createSystemMessage(
-      `Someone ${action} ${type} "${filePath}"`,
-      "file-change"
-    );
-    state.rooms[roomId].messages.push(systemMsg);
-    emitToRoom(roomId, "chat-message", systemMsg);
-  } catch (error) {
-    console.error("❌ Error broadcasting file change:", error);
-  }
-}
-
-// ----------------------
-// Container Monitoring with backoff and retry cap
-// ----------------------
-async function startContainerMonitor(roomId) {
-  // Clear existing interval if present
-  if (state.monitorIntervals[roomId]) {
-    clearInterval(state.monitorIntervals[roomId]);
-  }
-
-  state.monitorIntervals[roomId] = setInterval(async () => {
-    try {
-      const containerId = state.dockerContainers[roomId];
-      if (!containerId) return;
-
-      const running = await isContainerRunning(containerId);
-      if (!running) {
-        console.warn(
-          `⚠️ Container ${containerId} for room ${roomId} is not running.`
-        );
-
-        // increment attempts
-        state.containerRestartAttempts[roomId] =
-          (state.containerRestartAttempts[roomId] || 0) + 1;
-        const attempts = state.containerRestartAttempts[roomId];
-
-        if (attempts > MAX_CONTAINER_RESTARTS) {
-          console.error(
-            `❌ Container for room ${roomId} exceeded restart attempts (${attempts}). Giving up and notifying clients.`
-          );
-          emitToRoom(roomId, "vscode-url", null);
-          // free any reserved port
-          const port = state.allocatedPortByRoom[roomId];
-          freePort(port);
-          // stop monitor to avoid repeated spam
-          stopContainerMonitor(roomId);
-          return;
-        }
-
-        // backoff delay before restart
-        const backoff = RESTART_BACKOFF_BASE_MS * Math.pow(2, attempts - 1);
-        console.log(
-          `🔁 Restart attempt ${attempts} for room ${roomId} in ${backoff}ms`
-        );
-        setTimeout(() => {
-          restartVSCodeDocker(roomId).catch((e) => {
-            console.error(
-              `❌ restartVSCodeDocker error for room ${roomId}:`,
-              e
-            );
-          });
-        }, backoff);
-      } else {
-        // reset attempts if running ok
-        state.containerRestartAttempts[roomId] = 0;
-      }
-    } catch (err) {
-      console.error("❌ Error in container monitor:", err);
-    }
-  }, MONITOR_INTERVAL);
-}
-
-function stopContainerMonitor(roomId) {
-  if (state.monitorIntervals[roomId]) {
-    clearInterval(state.monitorIntervals[roomId]);
-    delete state.monitorIntervals[roomId];
-    console.log(`⏹️ Monitor stopped for room ${roomId}`);
   }
 }
 
 // ----------------------
 // VS Code Docker Management
 // ----------------------
-async function startVSCodeDocker(roomId, projectPath) {
-  let port;
+function buildPublicUrlFromBase(port) {
   try {
-    port = await getFreePort();
-    // temporarily record allocation in case of failure
-    state.allocatedPortByRoom[roomId] = port;
-
-    const { containerId, containerName } = await createDockerContainer(
-      roomId,
-      projectPath,
-      port
-    );
-
-    state.dockerContainers[roomId] = containerId;
-
-    const url = buildPublicUrlFromBase(port);
-
-    console.log("--------------------------------------------------");
-    console.log(`✅ VS Code server started for room: ${roomId}`);
-    console.log(`🐳 Container ID : ${containerId}`);
-    console.log(`📦 Container Name: ${containerName}`);
-    console.log(`🌐 Access URL   : ${url}`);
-    console.log("--------------------------------------------------");
-
-    // Initialize room if it doesn't exist
-    if (!state.rooms[roomId]) {
-      state.rooms[roomId] = {
-        messages: [],
-        users: [],
-        vsCodeUrl: null,
-        projectPath,
-        createdAt: getCurrentTimestamp(),
-      };
+    const base = new URL(BASE_URL);
+    const hostname = base.hostname;
+    const lastNumberMatch = hostname.match(/(\d+)(?!.*\d)/);
+    if (lastNumberMatch) {
+      const newHostname = hostname.slice(0, lastNumberMatch.index) + String(port) + hostname.slice(lastNumberMatch.index + lastNumberMatch[0].length);
+      return `${base.protocol}//${newHostname}${base.pathname === "/" ? "" : base.pathname.replace(/\/$/, "")}`;
+    } else {
+      base.port = String(port);
+      return base.toString().replace(/\/$/, "");
     }
-
-    state.rooms[roomId].vsCodeUrl = url;
-    state.rooms[roomId].projectPath = projectPath;
-
-    // Start monitoring and file watching
-    startFileWatcher(roomId, path.join(projectPath, "project"));
-    await startContainerMonitor(roomId);
-
-    // Emit URL to room
-    emitToRoom(roomId, "vscode-url", url);
-
-    return { containerId, port, url };
-  } catch (error) {
-    // free port reservation on failure
-    if (port) freePort(port);
-    console.error("❌ Error starting VS Code Docker:", error);
-    throw error;
+  } catch {
+    return `http://localhost:${port}`;
   }
+}
+
+async function startVSCodeDocker(roomId, projectPath) {
+  return withRetry(async () => {
+    let port;
+    try {
+      port = await getFreePort();
+      state.allocatedPortByRoom.set(roomId, port);
+
+      console.log(`🚀 Starting room ${roomId} on port ${port}...`);
+      
+      const { containerId, containerName } = await createDockerContainer(roomId, projectPath, port);
+      state.dockerContainers.set(roomId, containerId);
+
+      const url = buildPublicUrlFromBase(port);
+
+      const room = state.rooms.get(roomId);
+      if (room) {
+        room.vsCodeUrl = url;
+        room.projectPath = projectPath;
+        room.containerId = containerId;
+        room.port = port;
+        room.status = 'ready';
+        room.readyAt = getCurrentTimestamp();
+        state.rooms.set(roomId, room);
+      }
+
+      startFileWatcher(roomId, path.join(projectPath, "project"));
+      startContainerMonitor(roomId);
+
+      emitToRoom(roomId, "vscode-url", url);
+
+      console.log(`✅ VS Code ready at ${url}`);
+      return { containerId, port, url };
+    } catch (error) {
+      if (port) freePort(port);
+      console.error(`❌ Error:`, error.message);
+      throw error;
+    }
+  }, 2, 1000);
+}
+
+// ----------------------
+// File Watching
+// ----------------------
+function startFileWatcher(roomId, projectPath) {
+  if (state.fileWatchers.has(roomId)) {
+    state.fileWatchers.get(roomId).close();
+    state.fileWatchers.delete(roomId);
+  }
+
+  try {
+    const watcher = chokidar.watch(projectPath, {
+      ignored: ["**/node_modules/**", "**/.git/**", "**/.vscode/**", "**/.*"],
+      persistent: true,
+      ignoreInitial: true,
+    });
+
+    watcher.on("add", (filePath) => {
+      broadcastFileChange(roomId, "created", path.relative(projectPath, filePath));
+    });
+
+    watcher.on("change", (filePath) => {
+      broadcastFileChange(roomId, "edited", path.relative(projectPath, filePath));
+    });
+
+    watcher.on("unlink", (filePath) => {
+      broadcastFileChange(roomId, "deleted", path.relative(projectPath, filePath));
+    });
+
+    watcher.on("error", (error) => {
+      console.error(`🔍 Watcher error:`, error);
+    });
+
+    state.fileWatchers.set(roomId, watcher);
+  } catch (error) {
+    console.error("❌ Error starting watcher:", error);
+  }
+}
+
+function broadcastFileChange(roomId, action, filePath) {
+  const room = state.rooms.get(roomId);
+  if (!room) return;
+
+  const systemMsg = createSystemMessage(`Someone ${action} "${filePath}"`, "file-change");
+  room.messages.push(systemMsg);
+  emitToRoom(roomId, "chat-message", systemMsg);
+}
+
+// ----------------------
+// Container Monitoring
+// ----------------------
+function startContainerMonitor(roomId) {
+  if (state.monitorIntervals.has(roomId)) {
+    clearInterval(state.monitorIntervals.get(roomId));
+  }
+
+  state.monitorIntervals.set(roomId, setInterval(async () => {
+    try {
+      const containerName = state.dockerContainers.get(roomId);
+      if (!containerName) return;
+
+      const running = await isContainerRunning(containerName);
+      if (!running) {
+        console.warn(`⚠️ Container ${roomId} stopped`);
+
+        const attempts = (state.containerRestartAttempts.get(roomId) || 0) + 1;
+        state.containerRestartAttempts.set(roomId, attempts);
+
+        if (attempts > MAX_CONTAINER_RESTARTS) {
+          console.error(`❌ Room ${roomId} exceeded restart attempts`);
+          emitToRoom(roomId, "vscode-url", null);
+          await cleanupRoom(roomId);
+          return;
+        }
+
+        const backoff = RESTART_BACKOFF_BASE_MS * Math.pow(2, attempts - 1);
+        setTimeout(() => {
+          restartVSCodeDocker(roomId).catch(e => console.error(`❌ Restart failed:`, e));
+        }, backoff);
+      } else {
+        state.containerRestartAttempts.set(roomId, 0);
+      }
+    } catch (err) {
+      console.error("❌ Monitor error:", err);
+    }
+  }, MONITOR_INTERVAL));
 }
 
 async function restartVSCodeDocker(roomId) {
   try {
-    console.log(`🔄 Restarting VS Code Docker for room ${roomId}...`);
+    console.log(`🔄 Restarting room ${roomId}...`);
 
-    const oldContainerId = state.dockerContainers[roomId];
-    const oldPort = state.allocatedPortByRoom[roomId];
+    const oldContainerName = state.dockerContainers.get(roomId);
+    const oldPort = state.allocatedPortByRoom.get(roomId);
 
-    if (oldContainerId) {
-      console.log(
-        `🛑 Stopping old container ${oldContainerId} for room ${roomId}`
-      );
-      await stopAndRemoveContainer(oldContainerId);
-      delete state.dockerContainers[roomId];
+    if (oldContainerName) {
+      await stopAndRemoveContainer(oldContainerName);
+      state.dockerContainers.delete(roomId);
     }
 
-    // free old port reservation (we will allocate a fresh one)
-    if (oldPort) {
-      freePort(oldPort);
+    if (oldPort) freePort(oldPort);
+
+    const room = state.rooms.get(roomId);
+    const projectPath = room?.projectPath || path.join(WORKSPACE_BASE_PATH, roomId);
+    
+    const { url, containerId, port } = await startVSCodeDocker(roomId, projectPath);
+
+    if (room) {
+      room.vsCodeUrl = url;
+      room.containerId = containerId;
+      room.port = port;
+      state.rooms.set(roomId, room);
     }
-
-    const projectPath =
-      state.rooms[roomId]?.projectPath ||
-      path.join(WORKSPACE_BASE_PATH, roomId);
-    const { url, containerId, port } = await startVSCodeDocker(
-      roomId,
-      projectPath
-    );
-
-    state.rooms[roomId].vsCodeUrl = url;
-    state.dockerContainers[roomId] = containerId;
-    state.allocatedPortByRoom[roomId] = port;
 
     emitToRoom(roomId, "vscode-url", url);
-    console.log(`✅ Restarted VS Code for room ${roomId}: ${url}`);
+    console.log(`✅ Restarted room ${roomId}`);
   } catch (err) {
-    console.error(
-      `❌ Failed to restart VS Code Docker for room ${roomId}:`,
-      err
-    );
+    console.error(`❌ Restart failed:`, err);
     emitToRoom(roomId, "vscode-url", null);
   }
 }
@@ -503,185 +469,178 @@ async function restartVSCodeDocker(roomId) {
 // Room Management
 // ----------------------
 async function cleanupRoom(roomId) {
-  console.log(`🧹 Cleaning up room: ${roomId}`);
+  console.log(`🧹 Cleaning room ${roomId}`);
 
-  // Stop monitoring
-  stopContainerMonitor(roomId);
-
-  // Close file watcher
-  stopFileWatcher(roomId);
-
-  // Stop and remove Docker container
-  if (state.dockerContainers[roomId]) {
-    const containerId = state.dockerContainers[roomId];
-    try {
-      await stopAndRemoveContainer(containerId);
-      console.log(`🐳 Docker container cleaned up for room: ${roomId}`);
-    } catch (err) {
-      console.error(
-        `❌ Error cleaning up Docker container for room ${roomId}:`,
-        err
-      );
-    }
-    delete state.dockerContainers[roomId];
+  if (state.monitorIntervals.has(roomId)) {
+    clearInterval(state.monitorIntervals.get(roomId));
+    state.monitorIntervals.delete(roomId);
   }
 
-  // Free reserved port if any
-  const port = state.allocatedPortByRoom[roomId];
+  if (state.fileWatchers.has(roomId)) {
+    state.fileWatchers.get(roomId).close();
+    state.fileWatchers.delete(roomId);
+  }
+
+  const containerName = state.dockerContainers.get(roomId);
+  if (containerName) {
+    try {
+      await stopAndRemoveContainer(containerName);
+    } catch (err) {
+      console.error(`❌ Error cleaning container:`, err);
+    }
+    state.dockerContainers.delete(roomId);
+  }
+
+  const port = state.allocatedPortByRoom.get(roomId);
   if (port) freePort(port);
+  state.allocatedPortByRoom.delete(roomId);
 
-  // Clear restart attempts
-  delete state.containerRestartAttempts[roomId];
+  state.containerRestartAttempts.delete(roomId);
+  state.rooms.delete(roomId);
 
-  // Notify room about cleanup
   emitToRoom(roomId, "vscode-url", null);
 }
 
 function scheduleRoomCleanup(roomId) {
-  // cancel existing timer if any
-  if (state.cleanupTimers[roomId]) {
-    clearTimeout(state.cleanupTimers[roomId]);
+  if (state.cleanupTimers.has(roomId)) {
+    clearTimeout(state.cleanupTimers.get(roomId));
   }
 
-  state.cleanupTimers[roomId] = setTimeout(async () => {
-    const room = state.rooms[roomId];
+  state.cleanupTimers.set(roomId, setTimeout(async () => {
+    const room = state.rooms.get(roomId);
     if (room && room.users.length === 0) {
-      console.log(`🗑️ Cleaning up empty room: ${roomId}`);
-      try {
-        await cleanupRoom(roomId);
-      } catch (err) {
-        console.error(`❌ Error during cleanup of room ${roomId}:`, err);
-      }
-      delete state.rooms[roomId];
+      await cleanupRoom(roomId);
     }
-    delete state.cleanupTimers[roomId];
-  }, ROOM_CLEANUP_DELAY);
+    state.cleanupTimers.delete(roomId);
+  }, ROOM_CLEANUP_DELAY));
 }
 
 function cancelRoomCleanup(roomId) {
-  if (state.cleanupTimers[roomId]) {
-    clearTimeout(state.cleanupTimers[roomId]);
-    delete state.cleanupTimers[roomId];
-    console.log(`🛑 Cancelled scheduled cleanup for room: ${roomId}`);
+  if (state.cleanupTimers.has(roomId)) {
+    clearTimeout(state.cleanupTimers.get(roomId));
+    state.cleanupTimers.delete(roomId);
   }
 }
 
-// ----------------------
-// Socket Utilities
-// ----------------------
 function emitToRoom(roomId, event, data) {
   try {
     io.to(roomId).emit(event, data);
   } catch (err) {
-    console.error(`❌ Error emitting ${event} to room ${roomId}:`, err);
+    console.error(`❌ Error emitting:`, err);
   }
 }
 
 // ----------------------
-// CORS Configuration
+// CORS
 // ----------------------
-const corsOptions = {
-  origin: ALLOWED_ORIGINS,
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   methods: ["GET", "POST", "OPTIONS"],
   credentials: true,
   allowedHeaders: ["Content-Type", "Authorization"],
-};
-app.use(cors(corsOptions));
+}));
 
 // ----------------------
-// REST API Endpoints
+// API Endpoints
 // ----------------------
 app.post("/create-room", async (req, res) => {
-  console.log("📨 POST /create-room - Request received:", req.body);
-
   try {
     const { roomId } = req.body;
-
     if (!roomId) {
-      console.error("❌ Missing roomId in request");
-      return res
-        .status(400)
-        .json({ error: "roomId is required", success: false });
+      return res.status(400).json({ error: "roomId required", success: false });
     }
 
-    // Check if room already exists
-    if (state.rooms[roomId]?.vsCodeUrl) {
-      console.log(`✅ Room ${roomId} already exists`);
-      return res.json({
-        roomId,
-        url: state.rooms[roomId].vsCodeUrl,
-        success: true,
-        message: "Room already exists",
-      });
+    if (state.rooms.size >= MAX_ROOMS_TOTAL) {
+      return res.status(429).json({ error: "Maximum rooms reached", success: false, retryAfter: 30 });
     }
 
-    console.log(`🚀 Creating room: ${roomId}`);
+    const existingRoom = state.rooms.get(roomId);
+    if (existingRoom?.vsCodeUrl) {
+      return res.json({ roomId, url: existingRoom.vsCodeUrl, success: true });
+    }
+
     const projectPath = await createProjectFolder(roomId);
 
-    // Initialize room
-    state.rooms[roomId] = {
+    const roomData = {
       messages: [],
       users: [],
       vsCodeUrl: null,
-      createdAt: getCurrentTimestamp(),
       projectPath,
+      containerId: null,
+      port: null,
+      status: 'creating',
+      createdAt: getCurrentTimestamp(),
     };
+    state.rooms.set(roomId, roomData);
 
-    console.log(`🐳 Starting VS Code Docker for room: ${roomId}`);
-    const { url } = await startVSCodeDocker(roomId, projectPath);
-    state.rooms[roomId].vsCodeUrl = url;
+    startVSCodeDocker(roomId, projectPath).catch((err) => {
+      console.error(`❌ Failed:`, err);
+      const room = state.rooms.get(roomId);
+      if (room) {
+        room.status = 'failed';
+        room.error = err.message;
+        state.rooms.set(roomId, room);
+      }
+    });
 
-    console.log(`✅ Room created successfully: ${roomId}`);
     res.json({
       roomId,
-      url,
+      url: null,
       success: true,
-      message: "Room created successfully",
+      status: "processing",
+      estimatedTime: "5-10 seconds"
     });
   } catch (err) {
-    console.error("❌ Error creating room:", err);
-    res.status(500).json({
-      error: "Failed to create room",
-      details: err.message,
-      success: false,
-    });
+    console.error("❌ Error:", err);
+    res.status(500).json({ error: err.message, success: false });
   }
 });
 
-app.get("/project/:roomId/vscode", (req, res) => {
-  const { roomId } = req.params;
-  console.log(`📨 GET /project/${roomId}/vscode`);
+app.get("/room/:roomId/status", (req, res) => {
+  const room = state.rooms.get(req.params.roomId);
+  if (!room) {
+    return res.status(404).json({ error: "Room not found", success: false });
+  }
 
-  const room = state.rooms[roomId];
+  res.json({
+    roomId: req.params.roomId,
+    status: room.status || 'unknown',
+    vsCodeUrl: room.vsCodeUrl || null,
+    users: room.users.length,
+    ready: !!room.vsCodeUrl,
+    success: true,
+  });
+});
+
+app.get("/project/:roomId/vscode", (req, res) => {
+  const room = state.rooms.get(req.params.roomId);
   if (room?.vsCodeUrl) {
     res.json({ vsCodeUrl: room.vsCodeUrl, success: true });
+  } else if (room?.status === 'creating') {
+    res.status(202).json({ vsCodeUrl: null, status: 'creating', success: true });
   } else {
-    console.log(`❌ Room ${roomId} not found or VS Code not ready`);
-    res
-      .status(404)
-      .json({ error: "Room not found or VS Code not ready", success: false });
+    res.status(404).json({ error: "Room not ready", success: false });
   }
 });
 
 app.get("/health", (req, res) => {
-  const healthData = {
+  res.json({
     status: "ok",
-    activeRooms: Object.keys(state.rooms).length,
-    activeContainers: Object.keys(state.dockerContainers).length,
+    activeRooms: state.rooms.size,
+    activeContainers: state.dockerContainers.size,
     uptime: process.uptime(),
     timestamp: getCurrentTimestamp(),
-  };
-
-  console.log("💊 Health check:", healthData);
-  res.json(healthData);
-});
-
-app.get("/test", (req, res) => {
-  res.json({ message: "Server is working!", timestamp: getCurrentTimestamp() });
+  });
 });
 
 // ----------------------
-// Socket.IO Event Handlers
+// Socket.IO
 // ----------------------
 io.on("connection", (socket) => {
   console.log("👤 User connected:", socket.id);
@@ -690,67 +649,50 @@ io.on("connection", (socket) => {
     try {
       const { roomId, username, photoURL } = payload || {};
       if (!username || !roomId) {
-        console.error("❌ Missing username or roomId");
-        return socket.emit("error", {
-          message: "Username and roomId required",
-        });
+        return socket.emit("error", { message: "Username and roomId required" });
       }
 
-      if (!state.rooms[roomId]) {
-        console.error(`❌ Room ${roomId} not found`);
+      const room = state.rooms.get(roomId);
+      if (!room) {
         return socket.emit("error", { message: "Room not found" });
       }
 
-      // If there was a scheduled cleanup for this room, cancel it (user rejoined)
       cancelRoomCleanup(roomId);
 
       socket.join(roomId);
       socket.username = username;
       socket.roomId = roomId;
 
-      // Add user if not already present
-      const room = state.rooms[roomId];
       if (!room.users.find((u) => u.username === username)) {
-        room.users.push({ username, photoURL });
+        room.users.push({ username, photoURL, joinedAt: getCurrentTimestamp() });
+        state.rooms.set(roomId, room);
       }
 
-      // Send initial data to user
       socket.emit("chat-history", room.messages);
-      socket.emit("vscode-url", room.vsCodeUrl);
+      
+      if (room.vsCodeUrl) {
+        socket.emit("vscode-url", room.vsCodeUrl);
+      } else if (room.status === 'creating') {
+        socket.emit("room-status", { status: 'creating' });
+      }
 
-      // Broadcast user updates and join message
       emitToRoom(roomId, "users-update", room.users);
-      const joinMessage = createSystemMessage(
-        `${username} joined the room.`,
-        "user-action"
-      );
+      const joinMessage = createSystemMessage(`${username} joined.`, "user-action");
       room.messages.push(joinMessage);
       emitToRoom(roomId, "chat-message", joinMessage);
 
-      console.log(`👤 User ${username} joined room ${roomId}`);
+      console.log(`👤 ${username} joined ${roomId}`);
     } catch (err) {
-      console.error("❌ Error in join-room handler:", err);
-      socket.emit("error", { message: "Server error during join-room" });
+      console.error("❌ Join error:", err);
+      socket.emit("error", { message: "Server error" });
     }
   });
 
   socket.on("chat-message", (payload) => {
     try {
       const { roomId, username, message, photoURL } = payload || {};
-      console.log(
-        `💬 Chat message from ${username} in room ${roomId}: ${message}`
-      );
-
-      const room = state.rooms[roomId];
-      if (!room) {
-        console.error(`❌ Room ${roomId} not found for chat message`);
-        return;
-      }
-
-      if (!message?.trim()) {
-        console.error("❌ Empty message received");
-        return;
-      }
+      const room = state.rooms.get(roomId);
+      if (!room || !message?.trim()) return;
 
       const msgObj = {
         username,
@@ -761,130 +703,72 @@ io.on("connection", (socket) => {
       };
 
       room.messages.push(msgObj);
-      console.log(
-        `💾 Message stored. Total messages in room: ${room.messages.length}`
-      );
-
       emitToRoom(roomId, "chat-message", msgObj);
-      console.log(`📤 Message broadcasted to room ${roomId}`);
     } catch (err) {
-      console.error("❌ Error in chat-message handler:", err);
-    }
-  });
-
-  socket.on("typing", (payload) => {
-    try {
-      const { roomId, username } = payload || {};
-      if (!state.rooms[roomId]) return;
-      socket.to(roomId).emit("user-typing", username);
-    } catch (err) {
-      console.error("❌ Error in typing handler:", err);
-    }
-  });
-
-  socket.on("stop-typing", (payload) => {
-    try {
-      const { roomId, username } = payload || {};
-      if (!state.rooms[roomId]) return;
-      socket.to(roomId).emit("user-stopped-typing", username);
-    } catch (err) {
-      console.error("❌ Error in stop-typing handler:", err);
+      console.error("❌ Chat error:", err);
     }
   });
 
   socket.on("disconnecting", async () => {
     try {
       const { roomId, username } = socket;
-      const room = state.rooms[roomId];
+      const room = state.rooms.get(roomId);
 
       if (roomId && username && room) {
-        // Remove user from room
         room.users = room.users.filter((u) => u.username !== username);
+        state.rooms.set(roomId, room);
         emitToRoom(roomId, "users-update", room.users);
 
-        // Send leave message
-        const leaveMessage = createSystemMessage(
-          `${username} left the room.`,
-          "user-action"
-        );
+        const leaveMessage = createSystemMessage(`${username} left.`, "user-action");
         room.messages.push(leaveMessage);
         emitToRoom(roomId, "chat-message", leaveMessage);
 
-        console.log(`👋 User ${username} left room ${roomId}`);
-
-        // Schedule cleanup if room is empty
         if (room.users.length === 0) {
           scheduleRoomCleanup(roomId);
         }
       }
     } catch (err) {
-      console.error("❌ Error during disconnecting:", err);
+      console.error("❌ Disconnect error:", err);
     }
   });
 });
 
 // ----------------------
-// Graceful Shutdown
+// Shutdown
 // ----------------------
 async function gracefulShutdown() {
-  try {
-    console.log("🛑 Shutting down server...");
-
-    // Cancel all cleanup timers
-    Object.keys(state.cleanupTimers || {}).forEach((roomId) => {
-      try {
-        clearTimeout(state.cleanupTimers[roomId]);
-      } catch {}
-    });
-
-    // Stop all monitors
-    Object.keys(state.monitorIntervals || {}).forEach((roomId) => {
-      try {
-        stopContainerMonitor(roomId);
-      } catch {}
-    });
-
-    // Close watchers and cleanup containers
-    const cleanupPromises = Object.keys(state.rooms).map(async (roomId) => {
-      try {
-        await cleanupRoom(roomId);
-      } catch (e) {
-        console.error("Error cleaning room during shutdown:", roomId, e);
-      }
-    });
-
-    await Promise.all(cleanupPromises);
-
-    console.log("✅ Cleanup completed");
-    process.exit(0);
-  } catch (err) {
-    console.error("❌ Error during graceful shutdown:", err);
-    process.exit(1);
+  console.log("🛑 Shutting down...");
+  for (const timer of state.monitorIntervals.values()) clearInterval(timer);
+  for (const timer of state.cleanupTimers.values()) clearTimeout(timer);
+  for (const roomId of Array.from(state.rooms.keys())) {
+    await cleanupRoom(roomId);
   }
+  process.exit(0);
 }
 
 process.on("SIGTERM", gracefulShutdown);
 process.on("SIGINT", gracefulShutdown);
 
 // ----------------------
-// Server Startup
+// Start
 // ----------------------
 async function startServer() {
   try {
-    await initializeWorkspace();
+    await fs.mkdir(WORKSPACE_BASE_PATH, { recursive: true });
+    console.log(`✅ Workspace: ${WORKSPACE_BASE_PATH}`);
 
     server.listen(PORT, "0.0.0.0", () => {
       console.log("==================================================");
-      console.log("🚀 COLLABORATIVE CODE SERVER STARTED");
+      console.log("🚀 ULTRA FAST CODE SERVER");
       console.log("==================================================");
-      console.log(`🌐 Server running on: http://localhost:${PORT}`);
-      console.log(`📁 Workspace path: ${WORKSPACE_BASE_PATH}`);
-      console.log(`🕐 Started at: ${getCurrentTimestamp()}`);
-      console.log(`🔧 Base URL: ${BASE_URL}`);
+      console.log(`🌐 http://localhost:${PORT}`);
+      console.log(`📁 ${WORKSPACE_BASE_PATH}`);
+      console.log(`🐳 Official Code-Server (5-10s startup)`);
+      console.log(`🕐 ${getCurrentTimestamp()}`);
       console.log("==================================================");
     });
   } catch (error) {
-    console.error("❌ Failed to start server:", error);
+    console.error("❌ Failed to start:", error);
     process.exit(1);
   }
 }

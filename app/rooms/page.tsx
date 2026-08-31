@@ -6,6 +6,7 @@ import Head from "next/head";
 import { getAuth, onAuthStateChanged, User, signOut } from "firebase/auth";
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { v4 as uuidv4 } from "uuid";
+// @ts-ignore
 import "./rooms.css";
 
 // --- Firebase Config ---
@@ -23,13 +24,13 @@ const auth = getAuth(app);
 
 // API Configuration
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "https://8xqqzs-3001.csb.app";
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
 
 // Helper for fetch with timeout
 const fetchWithTimeout = async (
   url: string,
   options: RequestInit = {},
-  timeout = 10000
+  timeout = 30000
 ) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
@@ -43,6 +44,17 @@ const fetchWithTimeout = async (
     clearTimeout(id);
   }
 };
+
+// Room status interface
+interface RoomStatus {
+  roomId: string;
+  status: 'creating' | 'ready' | 'failed' | 'unknown';
+  vsCodeUrl: string | null;
+  users: number;
+  createdAt: string;
+  ready: boolean;
+  error?: string;
+}
 
 export default function JoinRoomPage() {
   const [roomCode, setRoomCode] = useState("");
@@ -58,6 +70,7 @@ export default function JoinRoomPage() {
 
   const roomCodeRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // --- Firebase Auth ---
   useEffect(() => {
@@ -105,6 +118,14 @@ export default function JoinRoomPage() {
       }
     };
     testConnection();
+
+    // Cleanup polling on unmount
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
   }, []);
 
   // Close dropdown when clicking outside
@@ -120,6 +141,68 @@ export default function JoinRoomPage() {
     return uuidRegex.test(code.trim());
   };
 
+  // Poll for room status until ready
+  const waitForRoomReady = (roomId: string): Promise<boolean> => {
+    return new Promise((resolve, reject) => {
+      let attempts = 0;
+      const maxAttempts = 30; // 30 seconds max
+
+      const checkStatus = async () => {
+        try {
+          attempts++;
+          console.log(`Checking room status (attempt ${attempts})...`);
+
+          const response = await fetchWithTimeout(
+            `${API_BASE_URL}/room/${roomId}/status`,
+            {},
+            5000
+          );
+
+          if (!response.ok) {
+            throw new Error(`Status check failed: ${response.status}`);
+          }
+
+          const statusData: RoomStatus = await response.json();
+          console.log('Room status:', statusData);
+
+          // If room is ready, resolve
+          if (statusData.ready && statusData.vsCodeUrl) {
+            console.log('✅ Room is ready!');
+            resolve(true);
+            return;
+          }
+
+          // If room creation failed, reject
+          if (statusData.status === 'failed') {
+            reject(new Error(statusData.error || 'Room creation failed'));
+            return;
+          }
+
+          // If max attempts reached, reject
+          if (attempts >= maxAttempts) {
+            reject(new Error('Room creation timed out'));
+            return;
+          }
+
+          // Schedule next check after 1 second
+          pollingIntervalRef.current = setTimeout(checkStatus, 1000);
+        } catch (err: any) {
+          console.error('Polling error:', err);
+          // If we've reached max attempts, reject
+          if (attempts >= maxAttempts) {
+            reject(new Error('Room creation timed out'));
+            return;
+          }
+          // Retry after 1 second on error
+          pollingIntervalRef.current = setTimeout(checkStatus, 1000);
+        }
+      };
+
+      // Start polling
+      checkStatus();
+    });
+  };
+
   const handleCreateRoom = async () => {
     if (!user) return setError("You must be logged in to create a room.");
     if (serverStatus !== "online")
@@ -132,6 +215,7 @@ export default function JoinRoomPage() {
       const newRoomId = uuidv4();
       console.log("Creating room with ID:", newRoomId);
 
+      // Step 1: Create the room
       const response = await fetchWithTimeout(
         `${API_BASE_URL}/create-room`,
         {
@@ -139,7 +223,7 @@ export default function JoinRoomPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ roomId: newRoomId }),
         },
-        15000
+        30000
       );
 
       if (!response.ok) {
@@ -150,22 +234,41 @@ export default function JoinRoomPage() {
       }
 
       const data = await response.json();
-      console.log("Room created successfully:", data);
+      console.log("Room creation response:", data);
 
-      if (data.success) router.push(`/editor?room=${newRoomId}`);
-      else throw new Error(data.error || "Failed to create room");
+      // Step 2: If room is ready immediately, redirect
+      if (data.success && data.url) {
+        router.push(`/editor?room=${newRoomId}`);
+        return;
+      }
+
+      // Step 3: Wait for room to be ready (polling)
+      if (data.success) {
+        console.log('⏳ Waiting for room to be ready...');
+        await waitForRoomReady(newRoomId);
+        console.log('✅ Room is ready, redirecting...');
+        router.push(`/editor?room=${newRoomId}`);
+      } else {
+        throw new Error(data.error || "Failed to create room");
+      }
     } catch (err: any) {
       console.error("Error creating room:", err);
-      if (err.name === "AbortError")
+      if (err.name === "AbortError") {
         setError("Room creation timeout. Please try again.");
-      else if (err.name === "TypeError" && err.message === "Failed to fetch") {
+      } else if (err.name === "TypeError" && err.message === "Failed to fetch") {
         setError(
           "Cannot connect to server. Please check your internet connection."
         );
         setServerStatus("offline");
-      } else setError(`Failed to create room: ${err.message}`);
+      } else {
+        setError(`Failed to create room: ${err.message}`);
+      }
     } finally {
       setIsCreatingRoom(false);
+      if (pollingIntervalRef.current) {
+        clearTimeout(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
     }
   };
 
@@ -184,6 +287,35 @@ export default function JoinRoomPage() {
     setError("");
 
     try {
+      // Check if room exists and is ready
+      const statusResponse = await fetchWithTimeout(
+        `${API_BASE_URL}/room/${trimmedRoomCode}/status`,
+        {},
+        10000
+      );
+
+      if (statusResponse.ok) {
+        const statusData: RoomStatus = await statusResponse.json();
+        
+        // If room is ready, redirect
+        if (statusData.ready && statusData.vsCodeUrl) {
+          router.push(`/editor?room=${trimmedRoomCode}`);
+          return;
+        }
+        
+        // If room is still creating, wait for it
+        if (statusData.status === 'creating') {
+          await waitForRoomReady(trimmedRoomCode);
+          router.push(`/editor?room=${trimmedRoomCode}`);
+          return;
+        }
+        
+        if (statusData.status === 'failed') {
+          throw new Error(statusData.error || 'Room creation failed');
+        }
+      }
+
+      // Fallback: try direct VS Code endpoint
       const response = await fetchWithTimeout(
         `${API_BASE_URL}/project/${trimmedRoomCode}/vscode`,
         { method: "GET", headers: { "Content-Type": "application/json" } },
@@ -191,11 +323,11 @@ export default function JoinRoomPage() {
       );
 
       if (!response.ok) {
-        if (response.status === 404)
+        if (response.status === 404) {
           setError("Room not found. Please check the room code.");
-        else if (response.status >= 500)
+        } else if (response.status >= 500) {
           setError("Server error. Please try again later.");
-        else {
+        } else {
           const errorData = await response.json().catch(() => ({}));
           setError(errorData.error || "Failed to join room. Please try again.");
         }
@@ -207,19 +339,24 @@ export default function JoinRoomPage() {
       router.push(`/editor?room=${trimmedRoomCode}`);
     } catch (err: any) {
       console.error("Error joining room:", err);
-      if (err.name === "AbortError")
+      if (err.name === "AbortError") {
         setError("Join room timeout. Please try again.");
-      else if (err.name === "TypeError" && err.message === "Failed to fetch") {
+      } else if (err.name === "TypeError" && err.message === "Failed to fetch") {
         setError(
           "Cannot connect to server. Please check your internet connection."
         );
         setServerStatus("offline");
-      } else
+      } else {
         setError(
           "Failed to join room. Please check the room code and try again."
         );
+      }
     } finally {
       setIsJoiningRoom(false);
+      if (pollingIntervalRef.current) {
+        clearTimeout(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
     }
   };
 

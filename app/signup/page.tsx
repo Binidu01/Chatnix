@@ -13,6 +13,7 @@ import {
   createUserWithEmailAndPassword,
   updateProfile,
 } from "firebase/auth";
+// @ts-ignore
 import "./signup.css"; // Import the CSS file first
 
 // --- Firebase Configuration ---
