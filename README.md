@@ -4,7 +4,7 @@
 
 Real-time collaborative code editor with live chat and browser-based VS Code.
 
-![TypeScript](https://img.shields.io/badge/TypeScript-3178c6?style=for-the-badge&logo=typescript&logoColor=white) ![CSS](https://img.shields.io/badge/CSS-1572B6?style=for-the-badge&logo=css&logoColor=white) ![JavaScript](https://img.shields.io/badge/JavaScript-f1e05a?style=for-the-badge&logo=javascript&logoColor=white) ![Express](https://img.shields.io/badge/Express-000000?style=for-the-badge&logo=express&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178c6?style=for-the-badge&logo=typescript&logoColor=white) ![CSS](https://img.shields.io/badge/CSS-1572B6?style=for-the-badge&logo=css&logoColor=white) ![JavaScript](https://img.shields.io/badge/JavaScript-f1e05a?style=for-the-badge&logo=javascript&logoColor=white) ![Express](https://img.shields.io/badge/Express-000000?style=for-the-badge&logo=express&logoColor=white) ![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
 
 [![Stars](https://img.shields.io/github/stars/Binidu01/Chatnix?style=for-the-badge&logo=github)](https://github.com/Binidu01/Chatnix/stargazers)
 [![Forks](https://img.shields.io/github/forks/Binidu01/Chatnix?style=for-the-badge&logo=github)](https://github.com/Binidu01/Chatnix/network/members)
@@ -42,6 +42,7 @@ Real-time collaborative code editor with live chat and browser-based VS Code.
 
 - Node.js (v14 or higher)
 - npm or yarn
+- [Docker](https://docs.docker.com/get-docker/) (must be installed and running — the backend spins up a `code-server` container for each room)
 
 ### Quick Start
 
@@ -62,7 +63,7 @@ node server.js
 npm run dev
 ```
 
-> ⚠️ **Note:** Chatnix requires the backend server to be running for live chat, collaborative editing, and the browser-based VS Code features to work. Make sure `node server.js` is running in its own terminal **before** or **alongside** `npm run dev`.
+> ⚠️ **Note:** Chatnix requires the backend server to be running for live chat, collaborative editing, and the browser-based VS Code features to work. Make sure `node server.js` is running in its own terminal **before** or **alongside** `npm run dev`. Docker must also be installed and running, since the backend uses it to launch a `code-server` container per room.
 
 Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
 
@@ -90,6 +91,7 @@ For more detailed usage instructions, please refer to our [documentation](https:
 - **CSS** - 25.7%
 - **JavaScript** - 24.9%
 - **Express** - Backend server (`server.js`)
+- **Docker** - Isolated `code-server` containers per room
 
 ## 🤝 Contributing
 
